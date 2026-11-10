@@ -27,7 +27,13 @@ cd muse-realtime-bridge
 ./scripts/setup.sh
 ```
 
-`.env` にOpenAI APIキーを設定し、次のコマンドで生成した値を `BRIDGE_TOKEN` に設定します。既存の `.env` はスクリプトで上書きしません。
+Muse VMでは、まず[認証情報ストアを使う導入手順](docs/muse-setup.md)に従ってください。専用の入力画面でOpenAI APIキーを登録し、中継は代替トークンを使う方針です。実キーをチャットや `.env` へ直接保存しないでください。
+
+現在のコードは `OPENAI_API_KEY` 環境変数の値をPython SDKへ渡します。**認証情報ストアとの連携や、WebSocketのAuthorizationヘッダーへのSentinelによる実キー挿入は未検証です。** 代替トークンの取得方法・許可する宛先・プロキシ設定をMuse側で確認し、必要な接続処理を調整してから起動してください。利用できない場合は、実キー保存へ自動的に切り替えず確認結果を報告します。
+
+Museの仕組みを使わないローカル開発では、実行環境に設定した `OPENAI_API_KEY` でも動作します。これは認証情報ストア経由の検証にはなりません。
+
+次のコマンドで生成した値を、中継専用の `BRIDGE_TOKEN` に設定します。既存の `.env` はスクリプトで上書きしません。
 
 ```bash
 python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
@@ -36,7 +42,7 @@ chmod 600 .env
 
 | 設定 | 用途 | 既定値 |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | VMからOpenAIへの認証。端末へ渡さない | 必須 |
+| `OPENAI_API_KEY` | SDKへ渡す認証値。Muse VMでは代替トークンの利用可否を先に確認 | 必須 |
 | `BRIDGE_TOKEN` | 端末から自作中継への認証。32文字以上のランダム値 | 必須 |
 | `BRIDGE_HOST` / `BRIDGE_PORT` | 中継の待ち受け | `127.0.0.1` / `8787` |
 | `OPENAI_REALTIME_MODEL` | 利用するRealtimeモデル | `gpt-realtime` |
@@ -109,7 +115,12 @@ journalctl --user -u muse-realtime-bridge -n 50
 ```text
 https://github.com/shuntaka9576/muse-realtime-bridge
 このリポジトリのREADME.mdとdocs/muse-setup.mdを読み、VM内にセットアップしてください。
-既存のMuseデーモンは変更せず、まず127.0.0.1で起動してhealthzを確認してください。
+OpenAI APIキーはチャットや.envに保存せず、Museの認証情報ストアへ登録したいです。
+専用の認証情報入力画面を提示してください。
+Python SDKのWebSocket接続で代替トークンとSentinelの実キー挿入を使えるか確認し、
+利用できる場合は必要な設定・接続処理を調整してください。
+利用できない場合は実キーを.envに保存せず、確認結果を報告してください。
+既存のMuseデーモンは変更せず、認証設定後に127.0.0.1で起動してください。
 APIキーやトークンの値はログや返信に含めず、設定の有無と疎通結果を報告してください。
 端末から接続する経路は別途確認し、利用可能な方法を報告してください。
 ```

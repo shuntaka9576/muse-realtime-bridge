@@ -5,7 +5,7 @@ command -v uv >/dev/null || { echo 'uv is required. See README.md.' >&2; exit 1;
 uv sync --frozen --no-dev --python 3.12
 if [[ ! -e .env ]]; then
   (umask 077; cp .env.example .env)
-  echo 'Created .env (mode 600). Set OPENAI_API_KEY and a newly generated BRIDGE_TOKEN.'
+  echo 'Created .env (mode 600). Read docs/muse-setup.md before configuring credentials.'
 else
   echo 'Existing .env preserved.'
 fi
