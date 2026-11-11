@@ -14,7 +14,6 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 from muse_realtime_bridge.config import Config
 from muse_realtime_bridge.server import Bridge
 
-TOKEN = "test-bridge-token-" + "x" * 32
 KEY = "test-upstream-key-never-forward"
 PCM = base64.b64encode(bytes(1920)).decode()
 
@@ -58,17 +57,16 @@ async def running(*, ready=True, **overrides):
     async with serve(fake.handle, "127.0.0.1", 0) as upstream:
         port = upstream.sockets[0].getsockname()[1]
         async with AsyncOpenAI(api_key=KEY, base_url=f"http://127.0.0.1:{port}/v1") as client:
-            cfg = replace(Config(KEY, TOKEN, port=0), **overrides)
+            cfg = replace(Config(KEY, port=0), **overrides)
             bridge = Bridge(cfg, client)
             async with bridge.serve() as server:
                 port = server.sockets[0].getsockname()[1]
                 yield f"ws://127.0.0.1:{port}", bridge, fake
 
 
-def device(url, token=TOKEN, **kwargs):
+def device(url, **kwargs):
     return connect(
         url + "/realtime",
-        additional_headers={"Authorization": f"Bearer {token}"},
         proxy=None,
         **kwargs,
     )
@@ -89,22 +87,16 @@ async def turn(ws):
     await send(ws, "response.create")
 
 
-async def test_auth_health_and_paths_do_not_connect_upstream():
+async def test_origin_health_and_paths_do_not_connect_upstream():
     async with running() as (url, _, fake):
         async with httpx.AsyncClient() as client:
             response = await client.get(url.replace("ws:", "http:") + "/healthz")
             assert response.status_code == 200
-        for path, token, expected in [
-            ("/realtime", "wrong", 401),
-            ("/realtime?token=" + TOKEN, TOKEN, 404),
-            ("/voice/realtime", TOKEN, 404),
-        ]:
+        for path in ["/realtime?token=unused", "/voice/realtime"]:
             with pytest.raises(InvalidStatus) as exc:
-                async with connect(
-                    url + path, additional_headers={"Authorization": f"Bearer {token}"}, proxy=None
-                ):
+                async with connect(url + path, proxy=None):
                     pass
-            assert exc.value.response.status_code == expected
+            assert exc.value.response.status_code == 404
         with pytest.raises(InvalidStatus) as exc:
             async with device(url, origin="https://untrusted.example"):
                 pass
@@ -302,7 +294,7 @@ async def test_smoke_wav_round_trip(tmp_path):
         wav.setframerate(24000)
         wav.writeframes(bytes(5760))
     async with running() as (url, _, fake):
-        task = asyncio.create_task(exchange(url + "/realtime", TOKEN, source, reply))
+        task = asyncio.create_task(exchange(url + "/realtime", source, reply))
         try:
             events = [await fake.next() for _ in range(6)]
             assert events[-1]["type"] == "response.create"
@@ -329,7 +321,7 @@ async def test_smoke_handshake_closes_session():
     from muse_realtime_bridge.smoke import exchange
 
     async with running() as (url, _, fake):
-        await exchange(url + "/realtime", TOKEN)
+        await exchange(url + "/realtime")
         await asyncio.wait_for(fake.closed.wait(), 2)
 
 
@@ -341,8 +333,8 @@ async def test_upstream_close_after_ready_notifies_device():
             assert (await recv(ws))["code"] == "upstream_closed"
 
 
-async def test_echo_and_audio_share_one_server_without_bridge_token():
-    async with running(bridge_token="") as (url, _, fake):
+async def test_echo_and_audio_share_one_server():
+    async with running() as (url, _, fake):
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 url.replace("ws:", "http:") + "/probe/echo?nonce=" + "a" * 32

@@ -1,7 +1,5 @@
 import asyncio
 import base64
-import hashlib
-import hmac
 import json
 import logging
 import re
@@ -25,7 +23,6 @@ class Bridge:
         self.config = config
         self.client = client
         self.active = 0
-        self.token_hash = hashlib.sha256(config.bridge_token.encode()).digest()
 
     def process_request(self, connection, request):
         if request.path == "/healthz":
@@ -48,18 +45,7 @@ class Bridge:
         # This endpoint is for firmware/native clients, not arbitrary browser origins.
         if request.headers.get_all("Origin"):
             return connection.respond(HTTPStatus.FORBIDDEN, "Origin not allowed\n")
-        if not self.config.bridge_token:
-            # Config restricts this mode to loopback. Muse's ingress, not this
-            # process, must authenticate remote callers before forwarding.
-            if self.client is None:
-                return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "OpenAI not configured\n")
-            return None
-        headers = request.headers.get_all("Authorization")
-        if len(headers) != 1 or not headers[0].startswith("Bearer "):
-            return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
-        candidate = hashlib.sha256(headers[0][7:].encode()).digest()
-        if not hmac.compare_digest(candidate, self.token_hash):
-            return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
+        # Remote authentication belongs to Muse ingress; bind is loopback-only.
         if self.client is None:
             return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "OpenAI not configured\n")
         return None

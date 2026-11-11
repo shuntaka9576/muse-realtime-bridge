@@ -2,9 +2,9 @@
 
 接続先は `ws://127.0.0.1:8787/realtime`（VM内）、外部からはTLSで保護した `wss://<host>/realtime` です。1 WebSocket接続 = 1 OpenAI会話セッションです。Muse標準のHTTP-over-Noise／NDJSONとは異なり、**1 WebSocketテキストメッセージに1 JSONイベント**を送ります。
 
-標準構成はloopback待ち受けで、VM外からの認証はMuseの入口に任せます。このプロセス自体は`vm_auth_token`を検証しません。Muse側の転送設定は未確認です。
+標準構成はloopback待ち受けで、VM外からの認証はMuseの入口に任せます。このプロセス自体は`vm_auth_token`を検証しません。今回のVM調査では任意のローカルポートへの転送設定機構は見つかっていません。
 
-独立した接続向けに`BRIDGE_TOKEN`を設定した場合だけ、HTTP Upgrade時に`Authorization: Bearer <BRIDGE_TOKEN>`が必要です。未設定でloopback以外へbindする設定は起動時に拒否します。ブラウザーのOrigin付き接続は受け付けません。
+待ち受けはloopbackに限定し、外部アドレスへのbindは起動時に拒否します。ブラウザーのOrigin付き接続は受け付けません。
 
 同じサーバー・ポートで`GET /probe/echo?nonce=<32桁の16進数>`と`GET /healthz`も提供します。OpenAI認証値が未設定でもこれらは利用でき、`/realtime`は503を返します。echoの成功は音声経路の成功を意味しません。
 

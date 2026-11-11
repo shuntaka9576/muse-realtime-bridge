@@ -9,35 +9,28 @@ VMにセットアップするのはこのサーバーだけです。
 | echo疎通確認 | `GET /probe/echo?nonce=<32桁の16進数>` |
 | 音声中継 | WebSocket `/realtime` |
 
-待ち受けはすべて`127.0.0.1:8787`です。PCでechoを確認した後、同じサーバーで音声を試します。
+待ち受けはすべて`127.0.0.1:8787`です。ペアリング済みStopWatchでechoを確認した後、同じサーバーで音声を試します。
 OpenAIの認証値が未設定でもechoは使えます。その場合、音声接続だけ503を返します。
 
 ## Museに渡す設定用プロンプト
 
 ```text
 https://github.com/shuntaka9576/muse-realtime-bridge
-最新mainのREADMEに従い、echo確認と音声中継を兼ねるサーバーを
-VM内の127.0.0.1:8787にセットアップしてください。サーバーは1つだけです。
-
-OpenAI APIキーはMuseの認証情報ストアへ登録したいので、
-専用の入力画面を提示してください。実キーをチャットや.envに保存しないでください。
-Python SDKのWebSocket接続で代替トークンとSentinelの実キー挿入が使えるか確認し、
-利用可能なら、その方法でサーバーに認証値を渡してください。
-利用できなければ実キー保存へ切り替えず、確認結果を報告してください。
-
-サーバーを起動し、READMEのcurlでechoを確認してください。
-OpenAI認証が設定できた場合は、同じサーバーの音声接続も確認してください。
-未設定ならechoを使える状態にし、音声は未設定と報告してください。
-
-次に、Museの既存の認証済みVM接続からこのサーバーへ転送できるか調べてください。
-echoはGET /probe/echo、音声はWebSocket /realtimeです。
-それぞれの通信方式を転送できる機構があれば設定し、なければ制約を報告してください。
-既存のMuseデーモン・認証・既存ルートを改変せず、外部ポートや公開トンネルは作らないでください。
-今回のloopback構成ではBRIDGE_TOKENの生成は不要です。キーやトークンの値は表示しないでください。
-
-echo、OpenAI音声接続、Muse経由の転送可否を区別し、起動・停止方法とともに報告してください。
-PC側のクライアントはこちらで実行します。
+README.mdを読み、echo確認とOpenAI音声中継のサーバーをVM内の127.0.0.1:8787にセットアップしてください。
+OpenAI APIキーはMuseの認証情報ストアへ登録したいので、未登録なら専用の入力画面を提示してください。実キーをチャットや.envに保存せず、代替トークンとSentinelを利用してください。
+VM内でechoとOpenAIへの音声接続を確認してください。
+StopWatchからはNoise接続に成功していますが、GET /probe/echoがHTTP 403になります。拒否理由と、このサーバーへ転送する方法があるか調べてください。
+既存のMuseデーモンや認証は変更せず、echo・OpenAI接続・転送可否を分けて報告してください。キーやトークンの値は表示しないでください。
 ```
+
+## セットアップ条件
+
+- OpenAI APIキーは専用入力画面からMuseの認証情報ストアへ登録し、代替トークンとSentinelを使います。既に登録済みなら再入力は不要です。実キーをチャット・ファイル・ログへ出さず、利用できなければそこで結果を報告してください。
+- READMEのcurlでecho、OpenAI認証設定後にsmokeでWebSocket接続を確認してください。OpenAI未設定でもechoは使えます。
+- 既存の認証済みNoise接続から、HTTP `/probe/echo`とWebSocket `/realtime`を転送できるか確認してください。既存のMuseデーモン・認証・ルートは改変せず、外部ポートや公開トンネルも作りません。転送機構がなければその制約を報告してください。
+
+結果はecho・OpenAI接続・転送経路に分け、起動・停止方法を添えてください。
+認証値は表示しません。StopWatchからのecho確認はユーザー側で実行します。
 
 ## VM側：セットアップと起動
 
@@ -70,29 +63,34 @@ curl --fail 'http://127.0.0.1:8787/probe/echo?nonce=0123456789abcdef0123456789ab
 .venv/bin/muse-realtime-smoke --input input.wav --output reply.wav
 ```
 
-## PC側：Museの認証経由で接続確認
+## StopWatch側：Museの認証経由で接続確認
 
-VM側の転送設定ができたら、PCでこのリポジトリを開きます。
-隣のディレクトリに[Muse Gadget SDK](https://github.com/shuntaka9576/muse-gadget-sdk)が必要です。
+検証の直前にVM内で`curl --fail http://127.0.0.1:8787/healthz`を実行し、停止していれば上記の手順で再起動します。自動復旧は前提にしません。
 
-```sh
-uv run --no-project --python 3.12 \
-  --with ../muse-gadget-sdk/linux --with 'websockets>=15,<16' \
-  python probe/client.py
-```
+[Muse Gadget SDK](https://github.com/shuntaka9576/muse-gadget-sdk)のStopWatchビルドで
+`CONFIG_MUSE_VM_PROBE=y`を有効にします。ペアリング済み端末をWi-Fiへ接続し、
+画面が起きた状態で黄ボタンを押すとecho確認が始まります。このモードでは音声を送りません。
 
-非表示の入力欄へ既存のMuseのaccess/device tokenを入力します。
-ペアリング済みSDKのファイルがあれば、代わりに`--pairing-file /path/to/pairing.json`を追加できます。
-初回ログイン・ペアリングは別途必要です。クライアントはVMトークンを取得してNoise接続を開き、
-echoのnonce一致を確認すると`PASS`を表示します。トークンの値は表示・保存しません。
+保存済みデバイストークンでVM情報を取得し、既存のLinkのNoise接続から
+`GET /probe/echo?nonce=...`を送ります。SDKトークンや`vm_auth_token`を手入力せず、
+追加の接続URLや独自トークンも端末に設定しません。
+
+画面とログで`VM INFO`、`NOISE`、`ECHO`を順に確認します。`ECHO PASS`はサーバー名と
+nonceが一致した場合だけ表示します。`HTTP 404`ならVM接続後のパスが応答しておらず、
+bridgeへの転送成功ではありません。タイムアウトや接続失敗も区別します。
+
+VM情報の確認は既存SDKの取得・更新処理を使い、echoはLinkが管理する接続に載せます。
+端末から自作サーバーへ転送する機構は別途必要で、トークンを用意するだけでは届きません。
 
 ## 認証と現在の確認範囲
 
 VM外からの認証はMuseの入口に任せ、サーバーはloopbackで待ち受けます。
 このプロセス自体は`vm_auth_token`を検証しないため、同じVM内のプロセスからはアクセスできます。
-独自トークン未設定でloopback以外にbindする設定は起動時に拒否します。
+loopback以外にbindする設定は起動時に拒否します。
 
-**Muse経由の転送可否は未確認です。** echoのHTTP転送ができても、音声のWebSocket転送が
+Museからの報告では`systemctl --user`が利用できず、バックグラウンド起動したプロセスも翌朝には終了していました。終了原因は未特定で、再起動後の自動復旧手段も未確認です。現在は手動起動による検証用途で、常時稼働を前提にしていません。
+
+**今回のVM調査では、任意のローカルポートへ転送する設定機構は見つかっていません。** echoのHTTP転送ができても、音声のWebSocket転送が
 できるとは限りません。HTTP-over-Noiseとの変換が必要なら、その対応は別途必要です。
 ローカルでは同一サーバーのechoと模擬OpenAIへの音声往復を自動テストしています。
 実VM・実OpenAI・StopWatchを通した音声会話は未確認です。

@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import base64
 import json
-import os
 import wave
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -13,14 +12,17 @@ from dotenv import load_dotenv
 from websockets.asyncio.client import connect
 
 
-async def exchange(url, token, input_path=None, output_path=None):
+async def exchange(url, input_path=None, output_path=None):
     parts = urlsplit(url)
     if parts.scheme not in {"ws", "wss"} or parts.path != "/realtime" or parts.query:
         raise ValueError("Use ws(s)://host:port/realtime without query parameters")
-    if parts.scheme == "ws" and parts.hostname not in {"localhost", "127.0.0.1", "::1"}:
-        raise ValueError("Use wss:// outside localhost")
-    if not token and parts.hostname not in {"localhost", "127.0.0.1", "::1"}:
-        raise ValueError("Direct remote access requires BRIDGE_TOKEN")
+    if (
+        parts.hostname not in {"127.0.0.1", "::1"}
+        or parts.username
+        or parts.password
+        or parts.fragment
+    ):
+        raise ValueError("Smoke checks must use a loopback IP address")
     pcm = None
     if input_path:
         with wave.open(str(input_path), "rb") as source:
@@ -39,7 +41,6 @@ async def exchange(url, token, input_path=None, output_path=None):
     async with asyncio.timeout(120):
         async with connect(
             url,
-            additional_headers={"Authorization": f"Bearer {token}"} if token else {},
             max_size=1024 * 1024,
             max_queue=8,
             open_timeout=20,
@@ -108,7 +109,7 @@ def main():
     if args.env_file:
         load_dotenv(args.env_file, override=False)
     try:
-        asyncio.run(exchange(args.url, os.environ.get("BRIDGE_TOKEN", ""), args.input, args.output))
+        asyncio.run(exchange(args.url, args.input, args.output))
     except (ValueError, RuntimeError, OSError, TimeoutError) as exc:
         parser.exit(1, f"{exc}\n")
 
