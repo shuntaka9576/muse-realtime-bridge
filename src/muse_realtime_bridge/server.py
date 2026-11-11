@@ -4,8 +4,10 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 from contextlib import suppress
 from http import HTTPStatus
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from openai import AsyncOpenAI
@@ -19,7 +21,7 @@ log = logging.getLogger("muse_realtime_bridge")
 
 
 class Bridge:
-    def __init__(self, config: Config, client: AsyncOpenAI):
+    def __init__(self, config: Config, client: AsyncOpenAI | None):
         self.config = config
         self.client = client
         self.active = 0
@@ -28,17 +30,38 @@ class Bridge:
     def process_request(self, connection, request):
         if request.path == "/healthz":
             return connection.respond(HTTPStatus.OK, '{"status":"ok"}\n')
+        route = urlsplit(request.path)
+        if route.path == "/probe/echo":
+            query = parse_qs(route.query, keep_blank_values=True)
+            nonce = query.get("nonce", [])
+            if (
+                set(query) != {"nonce"}
+                or len(nonce) != 1
+                or not re.fullmatch(r"[0-9a-f]{32}", nonce[0])
+            ):
+                return connection.respond(HTTPStatus.BAD_REQUEST, "Invalid nonce\n")
+            return connection.respond(
+                HTTPStatus.OK, json.dumps({"server": "muse-vm-probe", "nonce": nonce[0]}) + "\n"
+            )
         if request.path != "/realtime":
             return connection.respond(HTTPStatus.NOT_FOUND, "Not found\n")
         # This endpoint is for firmware/native clients, not arbitrary browser origins.
         if request.headers.get_all("Origin"):
             return connection.respond(HTTPStatus.FORBIDDEN, "Origin not allowed\n")
+        if not self.config.bridge_token:
+            # Config restricts this mode to loopback. Muse's ingress, not this
+            # process, must authenticate remote callers before forwarding.
+            if self.client is None:
+                return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "OpenAI not configured\n")
+            return None
         headers = request.headers.get_all("Authorization")
         if len(headers) != 1 or not headers[0].startswith("Bearer "):
             return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
         candidate = hashlib.sha256(headers[0][7:].encode()).digest()
         if not hmac.compare_digest(candidate, self.token_hash):
             return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
+        if self.client is None:
+            return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "OpenAI not configured\n")
         return None
 
     async def send(self, device, event):

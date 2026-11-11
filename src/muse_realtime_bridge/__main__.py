@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import signal
+from contextlib import AsyncExitStack
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -15,10 +16,17 @@ async def run(config):
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
-    # Use the official endpoint; do not inherit OPENAI_BASE_URL from the environment.
-    async with AsyncOpenAI(
-        api_key=config.openai_api_key, base_url="https://api.openai.com/v1", max_retries=0
-    ) as client:
+    async with AsyncExitStack() as stack:
+        client = None
+        if config.openai_api_key:
+            # Do not inherit OPENAI_BASE_URL from the environment.
+            client = await stack.enter_async_context(
+                AsyncOpenAI(
+                    api_key=config.openai_api_key,
+                    base_url="https://api.openai.com/v1",
+                    max_retries=0,
+                )
+            )
         async with Bridge(config, client).serve():
             logging.getLogger("muse_realtime_bridge").info(
                 "listening host=%s port=%d model=%s", config.host, config.port, config.model

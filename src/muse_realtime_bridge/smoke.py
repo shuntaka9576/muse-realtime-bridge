@@ -19,8 +19,8 @@ async def exchange(url, token, input_path=None, output_path=None):
         raise ValueError("Use ws(s)://host:port/realtime without query parameters")
     if parts.scheme == "ws" and parts.hostname not in {"localhost", "127.0.0.1", "::1"}:
         raise ValueError("Use wss:// outside localhost")
-    if not token:
-        raise ValueError("BRIDGE_TOKEN is required")
+    if not token and parts.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError("Direct remote access requires BRIDGE_TOKEN")
     pcm = None
     if input_path:
         with wave.open(str(input_path), "rb") as source:
@@ -39,7 +39,7 @@ async def exchange(url, token, input_path=None, output_path=None):
     async with asyncio.timeout(120):
         async with connect(
             url,
-            additional_headers={"Authorization": f"Bearer {token}"},
+            additional_headers={"Authorization": f"Bearer {token}"} if token else {},
             max_size=1024 * 1024,
             max_queue=8,
             open_timeout=20,

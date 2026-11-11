@@ -1,11 +1,16 @@
 import asyncio
+import http.server
 import importlib.util
-import json
 import threading
 import urllib.request
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
+
+from muse_realtime_bridge.config import Config
+from muse_realtime_bridge.server import Bridge
 
 
 def load(name):
@@ -17,23 +22,23 @@ def load(name):
     return module
 
 
-def test_local_echo():
-    module = load("server")
-    server = module.ThreadingHTTPServer(("127.0.0.1", 0), module.EchoHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        nonce = "a" * 32
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{server.server_port}/probe/echo",
-            json.dumps({"nonce": nonce}).encode(), {"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=2) as response:
-            assert json.load(response) == {"server": "muse-vm-probe", "nonce": nonce}
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join()
+async def test_local_echo_without_openai():
+    from websockets.asyncio.client import connect
+    from websockets.exceptions import InvalidStatus
+
+    async with Bridge(Config(port=0), None).serve() as server:
+        port = server.sockets[0].getsockname()[1]
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"http://127.0.0.1:{port}/probe/echo?nonce={'a' * 32}")
+            assert response.json() == {"server": "muse-vm-probe", "nonce": "a" * 32}
+            for query in ["", "?nonce=bad", f"?nonce={'a' * 32}&nonce={'b' * 32}"]:
+                assert (
+                    await client.get(f"http://127.0.0.1:{port}/probe/echo{query}")
+                ).status_code == 400
+        with pytest.raises(InvalidStatus) as error:
+            async with connect(f"ws://127.0.0.1:{port}/realtime", proxy=None):
+                pytest.fail("Missing OpenAI configuration must refuse audio")
+        assert error.value.response.status_code == 503
 
 
 @pytest.mark.parametrize("matches", [True, False])
@@ -51,10 +56,14 @@ async def test_noise_probe_response_and_cleanup(matches):
         async def wait_transport_ready(self, **kwargs):
             await asyncio.sleep(0)
 
-        async def request(self, method, path, body, **kwargs):
-            assert method == "POST" and path == "/probe/echo"
-            return {"ok": matches, "status": 200 if matches else 404,
-                    "response": {"server": "muse-vm-probe", **json.loads(body)}}
+        async def request(self, method, path, body=b"", **kwargs):
+            assert method == "GET" and urlsplit(path).path == "/probe/echo"
+            nonce = parse_qs(urlsplit(path).query)["nonce"][0]
+            return {
+                "ok": matches,
+                "status": 200 if matches else 404,
+                "response": {"server": "muse-vm-probe", "nonce": nonce},
+            }
 
     session = Session()
     assert await client.probe(session, "/probe/echo") is matches
@@ -106,7 +115,7 @@ def test_hidden_input_failure_stops_before_fetch(monkeypatch, capsys):
 def test_http_redirect_does_not_forward_credentials():
     pytest.importorskip("musegadget")
     client = load("client")
-    module = load("server")
+    module = http.server
     paths = []
 
     class Redirect(module.BaseHTTPRequestHandler):

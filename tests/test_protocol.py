@@ -47,8 +47,16 @@ def test_event_rate_limit():
 
 def test_config_requires_separate_credentials():
     with pytest.raises(ValueError):
-        Config("", "x" * 32)
+        Config("replace-placeholder", "x" * 32)
     with pytest.raises(ValueError):
         Config("x" * 32, "x" * 32)
     config = Config("sensitive-openai-key", "sensitive-bridge-token" * 2)
     assert "sensitive" not in repr(config)
+
+
+def test_tokenless_server_is_loopback_only():
+    assert Config().host == "127.0.0.1"
+    for host in ["0.0.0.0", "::", "example.com"]:
+        with pytest.raises(ValueError, match="loopback"):
+            Config(host=host)
+    assert Config(host="0.0.0.0", bridge_token="x" * 32)

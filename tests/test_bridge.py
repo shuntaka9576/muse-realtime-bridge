@@ -339,3 +339,28 @@ async def test_upstream_close_after_ready_notifies_device():
             await recv(ws)
             await fake.socket.close()
             assert (await recv(ws))["code"] == "upstream_closed"
+
+
+async def test_echo_and_audio_share_one_server_without_bridge_token():
+    async with running(bridge_token="") as (url, _, fake):
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url.replace("ws:", "http:") + "/probe/echo?nonce=" + "a" * 32
+            )
+            assert response.json() == {"server": "muse-vm-probe", "nonce": "a" * 32}
+        assert fake.connections == 0
+        async with connect(url + "/realtime", proxy=None) as ws:
+            assert (await recv(ws))["type"] == "bridge.ready"
+            await fake.next()  # session.update
+            await turn(ws)
+            for _ in range(5):
+                await fake.next()  # three appends, commit, response.create
+            await fake.emit(
+                "response.output_audio.delta",
+                delta=PCM,
+                item_id="echo_audio",
+                response_id="response_test",
+                content_index=0,
+            )
+            assert (await recv(ws))["delta"] == PCM
+        assert fake.connections == 1
